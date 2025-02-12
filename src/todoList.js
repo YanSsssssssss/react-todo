@@ -1,13 +1,13 @@
 import './todo.css';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { fetchTodos, addTodo, completeTodo, fetchCompletedTodos } from './api/todoApi';
 
-function InputBar(add) {
-    let onAdd = add.onAdd;
+function InputBar({ onAdd, isLoading }) {
     const [newItem, setNewItem] = useState('');
 
-    const handleClick = ()=> {
+    const handleClick = async () => {
         if (newItem.trim()) {
-            onAdd(newItem);
+            await onAdd(newItem);
             setNewItem('');
         }
     }
@@ -16,17 +16,32 @@ function InputBar(add) {
         <div className="header">
             <input type="text" 
                 value={newItem}
-            id="inputText" 
-            onChange={(e) => setNewItem(e.target.value)}
-            placeholder="请输入内容" />
-            <button id="confirmButton" onClick={handleClick}>确认</button>
+                id="inputText" 
+                onChange={(e) => setNewItem(e.target.value)}
+                placeholder="请输入内容"
+                disabled={isLoading} />
+            <button 
+                id="confirmButton" 
+                onClick={handleClick}
+                disabled={isLoading}>
+                {isLoading ? '添加中...' : '确认'}
+            </button>
         </div>
     )
 }
 
-function TodoContainer({items = [], undo=true, onFinish}){
+function TodoContainer({items = [], undo=true, onFinish, isLoading}){
     let title = undo? '待办事项' : '已做事项';
     let finishFunc = onFinish ? onFinish: function(){}
+
+    if (isLoading) {
+        return (
+            <div className='todo-container'>
+                <h2>{title}</h2>
+                <div className='loading'>加载中...</div>
+            </div>
+        );
+    }
 
     return(
         <div className='todo-container'>
@@ -62,30 +77,79 @@ function FinishButton({onClick}) {
 }
 
 function TodoList() {
-    const [todoItems, setTodoItems] = useState([])
-    const [doneItems, setDoneItems] = useState([])
+    const [todoItems, setTodoItems] = useState([]);
+    const [doneItems, setDoneItems] = useState([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState(null);
 
-    const addTodoItem = function(text) {
-        const newItem = {
-            id: Date.now(),
-            text,
+    // 初始加载数据
+    useEffect(() => {
+        const loadData = async () => {
+            setIsLoading(true);
+            try {
+                const [todos, completedTodos] = await Promise.all([
+                    fetchTodos(),
+                    fetchCompletedTodos()
+                ]);
+                setTodoItems(todos);
+                setDoneItems(completedTodos);
+            } catch (err) {
+                setError(err.message);
+                console.error('Failed to load todos:', err);
+            } finally {
+                setIsLoading(false);
+            }
         };
-        setTodoItems([...todoItems, newItem]);
+        
+        loadData();
+    }, []);
+
+    const addTodoItem = async (text) => {
+        setIsLoading(true);
+        try {
+            const newItem = await addTodo(text);
+            setTodoItems([...todoItems, newItem]);
+        } catch (err) {
+            setError(err.message);
+            console.error('Failed to add todo:', err);
+        } finally {
+            setIsLoading(false);
+        }
     }
 
-    const finishItem = function (id, text) {
-        setTodoItems(todoItems.filter(item => item.id !== id));
+    const finishItem = async (id, text) => {
+        setIsLoading(true);
+        try {
+            const completedTodo = await completeTodo(id);
+            setTodoItems(todoItems.filter(item => item.id !== id));
+            setDoneItems([...doneItems, completedTodo]);
+        } catch (err) {
+            setError(err.message);
+            console.error('Failed to complete todo:', err);
+        } finally {
+            setIsLoading(false);
+        }
+    }
 
-        setDoneItems([...doneItems, { id: Date.now(), text }])
-
+    if (error) {
+        return <div className="error-message">Error: {error}</div>;
     }
 
     return (
         <div className='todo-page'>
-            <InputBar onAdd={addTodoItem} />
+            <InputBar onAdd={addTodoItem} isLoading={isLoading} />
             <div className="content-container">
-                <TodoContainer items={todoItems} undo={true} onFinish={finishItem} />
-                <TodoContainer items={doneItems} undo={false} />
+                <TodoContainer 
+                    items={todoItems} 
+                    undo={true} 
+                    onFinish={finishItem}
+                    isLoading={isLoading} 
+                />
+                <TodoContainer 
+                    items={doneItems} 
+                    undo={false}
+                    isLoading={isLoading} 
+                />
             </div>
         </div>
     )
